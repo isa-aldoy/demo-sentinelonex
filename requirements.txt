@@ -1,0 +1,4 @@
+gradio>=4.0
+google-generativeai>=0.5
+jsonschema>=4.20
+httpx>=0.24.0
