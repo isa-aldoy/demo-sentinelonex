@@ -18,7 +18,14 @@ import psutil      # <-- NEW: For process monitoring
 import threading   # <-- NEW: For background threads
 
 # --- Configuration ---
-genai.configure(api_key="AIzaSyAvl7mBKFL3xm9hxUbSaOdF2a48OCqLJvY")
+api_key = os.getenv("GOOGLE_API_KEY")
+if not api_key:
+    print("[WARNING] GOOGLE_API_KEY environment variable not set!")
+    print("[WARNING] Please set: $env:GOOGLE_API_KEY='your-api-key'")
+    # For development only - use your key here temporarily
+    api_key = "AIzaSyAvl7mBKFL3xm9hxUbSaOdF2a48OCqLJvY"
+
+genai.configure(api_key=api_key)
 
 # --- Global Sentry Control ---
 sentry_active = threading.Event()
