@@ -11,10 +11,20 @@ import subprocess
 import threading
 import json
 from collections import deque
+import asyncio
 
 # Google Gemini API
 import google.generativeai as genai
 import os
+
+# MCP Security Scanner
+try:
+    from mcp_testbench.engine import TestEngine
+    from mcp_testbench.reporter import compute_score
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+    print("[WARNING] mcp_testbench not available - Security Scan disabled")
 
 # Configure Gemini API
 api_key = os.getenv("GOOGLE_API_KEY")
@@ -246,6 +256,98 @@ with col2:
         st.rerun()
 
 # Footer
+st.markdown("---")
+
+# --- MCP SECURITY SCAN TAB ---
+with st.expander("🔍 **MCP Security Scan** - Test URL Security", expanded=False):
+    if not MCP_AVAILABLE:
+        st.error("❌ MCP Testbench module not available. Please install dependencies.")
+    else:
+        st.markdown("""
+        ### 🔍 On-Demand Security Scan
+        Enter a URL to test its security against the **Model Context Protocol (MCP) Testbench**.
+        This will run automated security tests and provide a comprehensive security score.
+        """)
+        
+        col1_scan, col2_scan = st.columns([3, 1])
+        with col1_scan:
+            scan_url = st.text_input(
+                "Target URL", 
+                placeholder="e.g., http://localhost:8000 or https://example.com",
+                help="Enter the URL you want to scan for security vulnerabilities"
+            )
+        with col2_scan:
+            st.markdown("<br>", unsafe_allow_html=True)  # Spacing
+            scan_button = st.button("🚀 Start Scan", type="primary", use_container_width=True)
+        
+        if scan_button:
+            if not scan_url:
+                st.error("❌ Please enter a target URL")
+            else:
+                # Normalize URL
+                if not scan_url.startswith('http://') and not scan_url.startswith('https://'):
+                    scan_url = 'http://' + scan_url
+                
+                st.info(f"🔍 Starting MCP security scan on: **{scan_url}**")
+                
+                with st.spinner("Running security tests... This may take a moment..."):
+                    try:
+                        # Run MCP scan
+                        engine = TestEngine(base_url=scan_url)
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        results = loop.run_until_complete(engine.run_all())
+                        loop.close()
+                        
+                        score = compute_score(results)
+                        # Convert score to int if it's a string
+                        try:
+                            score_num = int(score) if isinstance(score, str) else score
+                        except (ValueError, TypeError):
+                            score_num = 0
+                        
+                        # Display results
+                        st.success(f"✅ Scan Complete!")
+                        
+                        # Score display
+                        col_score1, col_score2 = st.columns(2)
+                        with col_score1:
+                            st.metric("🎯 Security Score", f"{score}/100", 
+                                     delta="High" if score_num > 80 else ("Medium" if score_num > 50 else "Low"))
+                        with col_score2:
+                            st.metric("Target URL", scan_url)
+                        
+                        # Detailed results
+                        st.markdown("### 📋 Detailed Scan Results")
+                        
+                        if isinstance(results, dict):
+                            # Format results nicely
+                            for key, value in results.items():
+                                if key == "score":
+                                    continue  # Already shown above
+                                elif isinstance(value, dict):
+                                    with st.expander(f"📦 {key.replace('_', ' ').title()}", expanded=True):
+                                        st.json(value)
+                                elif isinstance(value, list):
+                                    with st.expander(f"📝 {key.replace('_', ' ').title()} ({len(value)} items)", expanded=False):
+                                        st.json(value)
+                                else:
+                                    st.text(f"{key.replace('_', ' ').title()}: {value}")
+                        else:
+                            st.json(results)
+                        
+                        # Download results as JSON
+                        st.download_button(
+                            label="📥 Download Full Report (JSON)",
+                            data=json.dumps(results, indent=2),
+                            file_name=f"mcp_scan_{scan_url.replace('://', '_').replace('/', '_')}.json",
+                            mime="application/json"
+                        )
+                        
+                    except Exception as e:
+                        st.error(f"❌ Scan failed: {str(e)}")
+                        st.exception(e)
+
 st.markdown("---")
 st.caption("SentinelOneX V4.0 | Powered by Google Gemini 2.0 | Streamlit Dashboard")
 

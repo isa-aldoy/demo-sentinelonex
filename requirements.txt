@@ -1,4 +1,156 @@
-gradio>=4.0
-google-generativeai>=0.5
-jsonschema>=4.20
-httpx>=0.24.0
+# SentinelOneX V4.0 - Python Dependencies
+# Updated: November 4, 2025
+# Python Version: 3.14.0
+
+# === Core Web Framework ===
+streamlit==1.50.0              # Main UI framework (replaced Gradio for Python 3.14 compatibility)
+gradio==5.23.1                 # Legacy UI framework (v3_api_demo.py - kept for reference)
+
+# === AI & Machine Learning ===
+google-generativeai==0.8.5     # Google Gemini API (Flash + Pro models)
+google-api-core==2.25.2        # Google API infrastructure
+google-api-python-client==2.186.0  # Google API client library
+google-auth==2.42.1            # Google authentication
+google-auth-httplib2==0.2.1    # Google auth HTTP library
+google-ai-generativelanguage==0.6.15  # Gemini language models
+
+# === Data Processing ===
+pandas==2.3.3                  # Data manipulation (threat logs, metrics)
+numpy==2.3.4                   # Numerical computing
+pyarrow==22.0.0                # Columnar data format
+
+# === Process Monitoring ===
+psutil==7.1.3                  # System and process monitoring (Sentry engine)
+
+# === Security & Validation ===
+jsonschema==4.25.1             # JSON schema validation (playbook validation)
+jsonschema-specifications==2025.9.1  # JSON schema specs
+
+# === HTTP & Networking ===
+httpx==0.28.1                  # Async HTTP client (MCP testbench)
+httpcore==1.0.9                # HTTP protocol implementation
+requests==2.32.5               # HTTP library (legacy support)
+urllib3==2.5.0                 # HTTP client
+certifi==2025.10.5             # SSL certificates
+
+# === Web Server & API ===
+fastapi==0.121.0               # FastAPI framework (future API endpoints)
+starlette==0.49.3              # ASGI framework
+uvicorn==0.38.0                # ASGI server
+websockets==15.0.1             # WebSocket support
+
+# === UI Components & Visualization ===
+altair==5.5.0                  # Declarative visualization (Streamlit charts)
+pydeck==0.9.1                  # Deck.gl bindings (maps)
+pillow==11.3.0                 # Image processing
+plotly                         # Interactive charts (optional)
+
+# === File & Data Handling ===
+aiofiles==23.2.1               # Async file operations
+toml==0.10.2                   # TOML parser
+tomlkit==0.13.3                # TOML manipulation
+PyYAML==6.0.3                  # YAML parser
+
+# === CLI & Utilities ===
+click==8.3.0                   # CLI framework
+typer==0.20.0                  # Modern CLI builder
+rich==14.2.0                   # Terminal formatting
+colorama==0.4.6                # Terminal colors (Windows)
+
+# === Async & Threading ===
+anyio==4.11.0                  # Async compatibility layer
+tornado==6.5.2                 # Async networking (Streamlit backend)
+sniffio==1.3.1                 # Async library detection
+
+# === Validation & Type Checking ===
+pydantic==2.12.3               # Data validation
+pydantic_core==2.41.4          # Pydantic core
+annotated-types==0.7.0         # Type annotations
+typing_extensions==4.15.0      # Extended type hints
+
+# === Cryptography & Security ===
+cryptography==46.0.3           # Cryptographic recipes
+pyasn1==0.6.1                  # ASN.1 types
+pyasn1_modules==0.4.2          # ASN.1 protocol modules
+
+# === Protocol Buffers & gRPC ===
+protobuf==5.29.5               # Protocol buffers
+grpcio==1.76.0                 # gRPC framework
+grpcio-status==1.71.2          # gRPC status codes
+googleapis-common-protos==1.71.0  # Google API protos
+
+# === Version Control ===
+GitPython==3.1.45              # Git integration
+gitdb==4.0.12                  # Git object database
+
+# === Progress & Monitoring ===
+tqdm==4.67.1                   # Progress bars
+watchdog==6.0.0                # File system monitoring
+tenacity==9.1.2                # Retry logic
+
+# === Markdown & Text Processing ===
+Jinja2==3.1.6                  # Template engine
+MarkupSafe==3.0.3              # Safe string handling
+markdown-it-py==4.0.0          # Markdown parser
+mdurl==0.1.2                   # Markdown URL utilities
+Pygments==2.19.2               # Syntax highlighting
+
+# === Date & Time ===
+python-dateutil==2.9.0.post0   # Date utilities
+pytz==2025.2                   # Timezone database
+tzdata==2025.2                 # Timezone data
+
+# === Caching & Performance ===
+cachetools==6.2.1              # Caching utilities
+blinker==1.9.0                 # Signal/event system
+
+# === Miscellaneous ===
+attrs==25.4.0                  # Class attributes
+packaging==25.0                # Package version handling
+filelock==3.20.0               # File locking
+fsspec==2025.10.0              # File system specification
+six==1.17.0                    # Python 2/3 compatibility
+smmap==5.0.2                   # Memory-mapped file support
+referencing==0.37.0            # JSON reference resolution
+rpds-py==0.28.0                # Persistent data structures
+semantic-version==2.10.0       # Semantic versioning
+shellingham==1.5.4             # Shell detection
+narwhals==2.10.2               # DataFrame compatibility
+
+# === Gradio Dependencies (Legacy) ===
+gradio_client==1.8.0           # Gradio client library
+ffmpy==0.6.4                   # FFmpeg wrapper
+pydub==0.25.1                  # Audio processing
+python-multipart==0.0.20       # Multipart form data
+huggingface-hub==1.0.1         # Hugging Face model hub
+orjson==3.11.4                 # Fast JSON library
+
+# === Development Tools (Optional) ===
+ruff==0.14.3                   # Fast Python linter
+pyparsing==3.2.5               # Parser generator
+
+# === Audio Processing (Gradio) ===
+audioop-lts==0.2.2             # Audio operations
+
+# === HTTP Security ===
+h11==0.16.0                    # HTTP/1.1 protocol
+httplib2==0.31.0               # HTTP client library
+safehttpx==0.1.7               # Safe HTTP wrapper
+
+# === WASM & Policy (MCP Testbench) ===
+wasmer==1.1.0                  # WebAssembly runtime
+opa-wasm==0.3.2                # Open Policy Agent WASM
+
+# === Other ===
+annotated-doc==0.0.3           # Documentation annotations
+cffi==2.23                     # C Foreign Function Interface
+pycparser==2.23                # C parser
+groovy==0.1.2                  # Groovy scripting
+hf-xet==1.2.0                  # Hugging Face Xet
+
+# === Installation Notes ===
+# 1. Use Python 3.14.0 for full compatibility
+# 2. Install with: pip install -r requirements.txt
+# 3. For MCP testbench, ensure wasmer and opa-wasm are installed
+# 4. Set GOOGLE_API_KEY environment variable before running
+# 5. Windows users: colorama enables colored terminal output
