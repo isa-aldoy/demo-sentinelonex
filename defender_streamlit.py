@@ -12,6 +12,7 @@ import threading
 import json
 from collections import deque
 import asyncio
+import requests  # For OpenRouter API
 
 # Google Gemini API
 import google.generativeai as genai
@@ -26,15 +27,95 @@ except ImportError:
     MCP_AVAILABLE = False
     print("[WARNING] mcp_testbench not available - Security Scan disabled")
 
-# Configure Gemini API
+# === API CONFIGURATION ===
+# Google Gemini API
 api_key = os.getenv("GOOGLE_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
-    v1_analyst_model = genai.GenerativeModel('gemini-2.0-flash')
-    v3_expert_model = genai.GenerativeModel('gemini-2.0-pro')
+    gemini_flash_model = genai.GenerativeModel('gemini-2.0-flash')
+    gemini_pro_model = genai.GenerativeModel('gemini-2.0-pro')
 else:
-    v1_analyst_model = None
-    v3_expert_model = None
+    gemini_flash_model = None
+    gemini_pro_model = None
+    print("[WARNING] GOOGLE_API_KEY not set - Gemini disabled")
+
+# OpenRouter API Keys (FREE MODELS - No Gemini limits!)
+openrouter_primary = os.getenv("OPENROUTER_KEY") or "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"
+openrouter_fallback = os.getenv("OPENROUTER_FALLBACK") or "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"
+
+# AI Model Selection (Change this to switch between providers)
+USE_OPENROUTER = True  # Set to True to use FREE OpenRouter models, False for Gemini
+
+# === OPENROUTER AI FUNCTIONS ===
+def call_openrouter_api(model_name, prompt, api_key):
+    """Call OpenRouter API for FREE AI models (no rate limits like Gemini)."""
+    try:
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "http://localhost:7861",
+                "X-Title": "SentinelOneX V4.0",
+            },
+            json={
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.7,
+                "max_tokens": 2000
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        print(f"[OPENROUTER] Error calling {model_name}: {str(e)[:200]}")
+        raise
+
+def waterfall_ai_call(prompt, is_expert=False):
+    """
+    WATERFALL AI: Try multiple FREE models in priority order.
+    
+    ANALYST (Fast): Gemma → Llama Scout → DeepSeek → MiniMax → Gemini
+    EXPERT (Deep): DeepSeek → Gemma → Llama Scout → MiniMax → Gemini
+    """
+    if is_expert:
+        # EXPERT MODELS (complex reasoning for playbooks)
+        attempts = [
+            ("DeepSeek V3.1", lambda: call_openrouter_api("deepseek/deepseek-chat-v3.1:free", prompt, openrouter_primary)),
+            ("Google Gemma 27B", lambda: call_openrouter_api("google/gemma-3-27b-it:free", prompt, openrouter_primary)),
+            ("Meta Llama Scout", lambda: call_openrouter_api("meta-llama/llama-4-scout:free", prompt, openrouter_primary)),
+            ("MiniMax M2", lambda: call_openrouter_api("minimax/minimax-m2:free", prompt, openrouter_fallback)),
+            ("Gemini Pro", lambda: gemini_pro_model.generate_content(prompt).text if gemini_pro_model else None),
+        ]
+    else:
+        # ANALYST MODELS (fast analysis)
+        attempts = [
+            ("Google Gemma 27B", lambda: call_openrouter_api("google/gemma-3-27b-it:free", prompt, openrouter_primary)),
+            ("Meta Llama Scout", lambda: call_openrouter_api("meta-llama/llama-4-scout:free", prompt, openrouter_primary)),
+            ("DeepSeek V3.1", lambda: call_openrouter_api("deepseek/deepseek-chat-v3.1:free", prompt, openrouter_primary)),
+            ("MiniMax M2", lambda: call_openrouter_api("minimax/minimax-m2:free", prompt, openrouter_fallback)),
+            ("Gemini Flash", lambda: gemini_flash_model.generate_content(prompt).text if gemini_flash_model else None),
+        ]
+    
+    # Try each model in order
+    for model_name, model_call in attempts:
+        try:
+            print(f"[AI] Trying {model_name}...")
+            result = model_call()
+            if result:
+                print(f"[AI] ✅ {model_name} succeeded!")
+                return result, model_name
+        except Exception as e:
+            print(f"[AI] ❌ {model_name} failed: {str(e)[:100]}")
+            continue
+    
+    return "ERROR: All AI models failed", "None"
+
+# Compatibility aliases for existing code
+v1_analyst_model = "openrouter" if USE_OPENROUTER else gemini_flash_model
+v3_expert_model = "openrouter" if USE_OPENROUTER else gemini_pro_model
+
 
 # FIXED: Use Streamlit session_state to persist data across reruns
 if 'threat_queue' not in st.session_state:
@@ -157,6 +238,25 @@ st.markdown("---")
 with st.sidebar:
     st.header("🎛️ Controls")
     
+    # AI MODEL SELECTION
+    st.markdown("---")
+    st.subheader("🤖 AI Provider")
+    ai_provider = st.radio(
+        "Select AI Provider",
+        ["OpenRouter (FREE, No Limits)", "Google Gemini (Limited)"],
+        index=0 if USE_OPENROUTER else 1,
+        help="OpenRouter provides FREE models without rate limits. Gemini has usage restrictions."
+    )
+    
+    if ai_provider == "OpenRouter (FREE, No Limits)":
+        USE_OPENROUTER = True
+        st.success("✅ Using FREE OpenRouter models")
+        st.caption("Models: DeepSeek V3.1, Gemma 27B, Llama Scout, MiniMax M2")
+    else:
+        USE_OPENROUTER = False
+        st.info("ℹ️ Using Gemini (rate limits apply)")
+        st.caption("Models: Gemini 2.0 Flash, Gemini 2.0 Pro")
+    
     # DEBUG PANEL - Shows real-time state
     st.markdown("---")
     st.subheader("🔍 Debug Panel")
@@ -217,7 +317,7 @@ with col1:
                 # AI Analysis button
                 if not threat.get('analyzed') and v1_analyst_model:
                     if st.button(f"🤖 Analyze Threat (PID {threat['pid']})", key=f"analyze_{threat['pid']}"):
-                        with st.spinner("Analyzing with Gemini AI..."):
+                        with st.spinner("Analyzing with AI (trying FREE models first)..."):
                             try:
                                 alert_data = {
                                     "process_id": threat['pid'],
@@ -231,9 +331,16 @@ with col1:
 
 Provide a brief human-readable summary (2-3 sentences)."""
                                 
-                                response = v1_analyst_model.generate_content(analyst_prompt)
-                                st.success("✅ AI Analysis Complete!")
-                                st.markdown(f"**Analysis:** {response.text}")
+                                # Use waterfall AI (tries OpenRouter models first if enabled)
+                                if USE_OPENROUTER:
+                                    analysis_result, model_used = waterfall_ai_call(analyst_prompt, is_expert=False)
+                                    st.success(f"✅ AI Analysis Complete! (Model: {model_used})")
+                                    st.markdown(f"**Analysis:** {analysis_result}")
+                                else:
+                                    # Fallback to Gemini
+                                    response = gemini_flash_model.generate_content(analyst_prompt)
+                                    st.success("✅ AI Analysis Complete! (Model: Gemini Flash)")
+                                    st.markdown(f"**Analysis:** {response.text}")
                                 
                                 threat['analyzed'] = True
                                 
